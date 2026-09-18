@@ -26,18 +26,33 @@ NAmap = read_sf('data/maps', 'ne_50m_admin_1_states_provinces_lakes')
 inat_species = read.table("data/taxonomy/inat_caterpillar_species_traits.txt", header = T, sep = "\t")
 
 hex <- st_read("data/maps/hexgrid_materials/hex_grid_crop.shp", stringsAsFactors= F) %>%
-  mutate(cell.num = as.numeric(cell)) %>%
-  dplyr::select(-cell) %>%
-  rename(cell = "cell.num")
+  mutate(cell = as.numeric(cell))
+
+sites = distinct(sites, Name, .keep_all = TRUE)
+hexcells <- sites %>%
+  st_as_sf(coords = c("Longitude", "Latitude")) %>%
+  st_set_crs("+proj=longlat +datum=WGS84 +no_defs") %>%
+  st_intersection(hex)
+
+fullDataset2 = fullDataset %>%
+  left_join(hexcells[, c('Name', 'cell')], by = 'Name') %>%
+  filter(!is.na(cell)) %>% #removes 6 sites out west
+  st_as_sf()
+
+usa <- st_as_sf(maps::map("state", fill = TRUE, plot = FALSE))%>%
+  st_make_valid()
+
+plot(st_geometry(usa))
+plot(st_geometry(hexcells["Name"]), add = TRUE)
+plot(st_geometry(usa))
+plot(st_geometry(unique(fullDataset2["Name"])), add = TRUE)
 
 ### Site effort summary
 
-#I think siteEffortSummary assumes column names in fullDataset that have changed, Latitude and Longitude are now Latitude.y and Longitude.y, while cell medianGreenup does not exist anymore
-#after removing those from the siteEffortSummary function in analysis_functions, there are still a lot of somewhat suspicious warnings, but it runs
 site_effort <- data.frame(year = c(2015:2026)) %>%
   mutate(site_effort = purrr::map(year, ~{
     y <- .
-    siteEffortSummary(fullDataset, year = y)
+    siteEffortSummary(fullDataset2, year = y)
   })) %>%
   unnest(cols = c(site_effort))
 
@@ -53,15 +68,15 @@ years_good <- tibble(minWeeksGoodor50Surveys = c(3:10)) %>%
       filter(n_years >= 2)
   }),
   n_siteyears = purrr::map_dbl(sites, ~nrow(.)),
-  n_regions = purrr::map_dbl(sites, ~length(unique(.$Region))))
-#  n_cells = purrr::map_dbl(sites, ~length(unique(.$cell))))
+  n_regions = purrr::map_dbl(sites, ~length(unique(.$Region))),
+  n_cells = purrr::map_dbl(sites, ~length(unique(.$cell))))
 
 goodweeks <- ggplot(years_good, aes(x = minWeeksGoodor50Surveys)) + 
   geom_line(aes(y = n_siteyears, col = "Site-years"), linewidth = 1) +
   geom_line(aes(y = n_regions, col = "Regions"), linewidth = 1) +
-  #geom_line(aes(y = n_cells, col = "Hex cells"), linewidth = 1) +
+  geom_line(aes(y = n_cells, col = "Hex cells"), linewidth = 1) +
   labs(col = "", y = " ", x = "Minimum good weeks or weeks with 50 surveys") +
-  theme(legend.position = c(0.8, 0.9))
+  theme(legend.position.inside = c(0.8, 0.9))
 
 ## For nWeeks 3-10
 
@@ -75,13 +90,13 @@ yearpairs_all <- tibble(minWeeks = c(3:10)) %>%
       filter(n_years >= 2)
   }),
   n_siteyears = purrr::map_dbl(sites, ~nrow(.)),
-  n_regions = purrr::map_dbl(sites, ~length(unique(.$Region))))
-  #n_cells = purrr::map_dbl(sites, ~length(unique(.$cell))))
+  n_regions = purrr::map_dbl(sites, ~length(unique(.$Region))),
+  n_cells = purrr::map_dbl(sites, ~length(unique(.$cell))))
 
 allweeks <- ggplot(yearpairs_all, aes(x = minWeeks)) + 
-  geom_line(aes(y = n_siteyears, col = "Site-years"), cex = 1) +
-  geom_line(aes(y = n_regions, col = "Regions"), cex = 1) +
-  #geom_line(aes(y = n_cells, col = "Hex cells"), cex = 1) +
+  geom_line(aes(y = n_siteyears, col = "Site-years"), linewidth = 1) +
+  geom_line(aes(y = n_regions, col = "Regions"), linewidth = 1) +
+  geom_line(aes(y = n_cells, col = "Hex cells"), linewidth = 1) +
   labs(col = "", y = "Data points", x = "Minimum weeks") +
   theme(legend.position = c(0.8, 0.9))
 
@@ -114,39 +129,39 @@ surveyThreshold = 0.8            # proprortion of surveys conducted to be consid
 minJulianWeek = 135              # beginning of seasonal window for tabulating # of good weeks
 maxJulianWeek = 211
 
-site_overlap <- fullDataset %>%
-  right_join(focal_sites, by = c("Year" = "year", "Name", "Region", "Latitude.y", "Longitude.y")) %>%
+site_overlap <- fullDataset2 %>%
+  right_join(focal_sites, by = c("Year" = "year", "Name", "Region", "cell", "Latitude.y", "Longitude.y")) %>%
   filter(case_when(Name == "UNC Chapel Hill Campus" ~ julianweek >= 121, # for UNC Campus, take out BIO 101 observations in April
                    TRUE ~ TRUE)) %>%
-  group_by(Name, Year, Region, Latitude.y, Longitude.y, julianweek) %>%
+  group_by(Name, Year, Region, cell, Latitude.y, Longitude.y, julianweek) %>%
   mutate(nSurveysPerWeek = n_distinct(ID),
             nSurveyBranches = n_distinct(PlantFK)) %>%
-  group_by(Name, Year, Region, Latitude.y, Longitude.y) %>%
+  group_by(Name, Year, Region, cell, Latitude.y, Longitude.y) %>%
   mutate(good_week = ifelse((julianweek >= minJulianWeek & julianweek <= maxJulianWeek) & 
                                          (nSurveysPerWeek > surveyThreshold*medianSurveysPerWeek | nSurveysPerWeek > 50), 1, 0)) %>%
   filter(good_week == 1) %>%
-  group_by(Name, Year, Region, Latitude.y, Longitude.y) %>%
+  group_by(Name, Year, Region, cell, Latitude.y, Longitude.y) %>%
   mutate(Start = min(julianweek),
          End = max(julianweek)) %>% 
-  group_by(Name, Region, Latitude.y, Longitude.y) %>%
+  group_by(Name, Region, cell, Latitude.y, Longitude.y) %>%
   mutate(maxStart = max(Start),
          minEnd = min(End)) %>%
   filter(julianweek >= maxStart & julianweek <= minEnd) %>%
-  group_by(Name, Year, Region, Latitude.y, Longitude.y) %>%
+  group_by(Name, Year, Region, cell, Latitude.y, Longitude.y) %>%
   filter(n_distinct(julianweek) >= 6) %>%
-  group_by(Name, Region, Latitude.y, Longitude.y) %>%
+  group_by(Name, Region, cell, Latitude.y, Longitude.y) %>%
   filter(n_distinct(Year) >= 2)
 
 sites_6weeks_overlap <- site_overlap %>%
   ungroup() %>%
-  distinct(Name, Year, Region, Latitude.y, Longitude.y, Start, End)
+  distinct(Name, Year, Region, cell, Latitude.y, Longitude.y, Start, End)
 
 hex_start_end <- sites_6weeks_overlap %>%
-  group_by(Year) %>%
+  group_by(Year, cell) %>%
   summarize(start = min(Start),
             end = max(End)) %>%
-  ungroup()# %>%
-  #mutate_at(c("cell"), ~as.numeric(as.character(.)))
+  ungroup() %>%
+  mutate_at(c("cell"), ~as.numeric(as.character(.)))
 
 ## Calculate pheno anomalies for sites with at least 2 years, min six weeks of good survey overlap between years
 ## Same start/end dates across years
@@ -156,7 +171,7 @@ outlierCount = 10000
 
 pheno_dev <- site_overlap %>%
   mutate(Quantity2 = ifelse(Quantity > outlierCount, 1, Quantity)) %>% #outlier counts replaced with 1
-  group_by(Name, Region, Latitude.y, Longitude.y, Year, julianweek) %>%
+  group_by(Name, Region, cell, Latitude.y, Longitude.y, Year, julianweek) %>%
   summarize(nSurveyBranches = n_distinct(PlantFK),
             nSurveys = n_distinct(ID),
             totalCount = sum(Quantity2[Group == "caterpillar"], na.rm = TRUE),
@@ -170,19 +185,19 @@ pheno_dev <- site_overlap %>%
   summarize(pctPeakDate = ifelse(sum(totalCount) == 0, NA, 
                                  julianweek[fracSurveys == max(fracSurveys, na.rm = TRUE)][1]),
             pctCentroidDate = sum(julianweek*fracSurveys)/sum(fracSurveys)) %>%
-  group_by(Name) %>%
+  group_by(Name, cell) %>%
   mutate(meanPeakDate = mean(pctPeakDate),
          meanCentroidDate = mean(pctCentroidDate),
          devPeakDate = meanPeakDate - pctPeakDate,
          devCentroidDate = meanCentroidDate - pctCentroidDate) 
 
 cell_pheno <- pheno_dev %>%
-  group_by(Year) %>%
+  group_by(cell, Year) %>%
   summarize(avgDevPeak = mean(devPeakDate),
             avgDevCentroid = mean(devCentroidDate))
 
-hex_subset <- hex #%>%
-#  filter(cell %in% cell_pheno$cell)
+hex_subset <- hex %>%
+  filter(cell %in% cell_pheno$cell)
 
 ## Pull weekly iNaturalist cats excluding caterpillars_count for min start and max end dates of cell/years from cell_pheno
 ## Pull weekly iNaturalist arthropod observations for the same set of weeks to do effort correction
@@ -193,7 +208,7 @@ hex_subset <- hex #%>%
  setwd("Z:/Databases/iNaturalist/")
  con <- DBI::dbConnect(RSQLite::SQLite(), dbname = "iNaturalist_s.db")
  
- db_list_tables(con)
+ #db_list_tables(con)
  
  inat_insects_early_db <- tbl(con, "inat") %>%
    dplyr::select(scientific_name, iconic_taxon_name, latitude, longitude, user_login, id, observed_on, taxon_id) %>%
@@ -223,9 +238,12 @@ hex_subset <- hex #%>%
    summarize(nObs = n_distinct(id))
  write.csv(inat_insects_weekly_cells, "data/inat_2015-2018_weekly_insecta_hex.csv", row.names = F)
 
+#read data directly 
+setwd("C:/git/cc-inat/")
 inat_insects_weekly_cells <- read.csv("data/derived_data/inat_2015-2018_weekly_insecta_hex.csv", stringsAsFactors = F)
 
 ## iNaturalist weekly Insecta observations (2019)
+setwd("Z:/Databases/iNaturalist/")
 
  inat_june_2019 <- read.csv("inat_june_2019/inat_2019_06.csv", stringsAsFactors = F)
  inat_june_insecta <- inat_june_2019 %>%
@@ -261,7 +279,10 @@ inat_insects_weekly_cells <- read.csv("data/derived_data/inat_2015-2018_weekly_i
    group_by(cell, year, jd_wk) %>%
    summarize(nObs = n_distinct(id))
  write.csv(inat_summer_2019, "data/inat_2019_weekly_insecta_hex.csv", row.names = F)
-
+ 
+ 
+#read data directly 
+setwd("C:/git/cc-inat/")
 inat_summer_2019 <- read.csv("data/derived_data/inat_2019_weekly_insecta_hex.csv", stringsAsFactors = F)
 
 # Where can we calculate iNat deviations
@@ -296,7 +317,7 @@ inat_cats_pheno <- inat %>%
 ## Peak and centroid dates and anomalies for caterpillars (effort corrected)
 
 inat_pheno <- inat_cats_pheno %>%
-  right_join(inat_insect_allyrs, by = c("cell", "year", "jd_wk")) %>%
+  right_join(inat_insect_allyrs, by = c("year", "jd_wk")) %>%
   mutate(cat_effort = nCats/nObs) %>%
   group_by(cell, year) %>%
   summarize(peakDate = median(jd_wk[cat_effort == max(cat_effort, na.rm = T)], na.rm = T),
