@@ -25,8 +25,11 @@ NAmap = read_sf('data/maps', 'ne_50m_admin_1_states_provinces_lakes')
 
 inat_species = read.table("data/taxonomy/inat_caterpillar_species_traits.txt", header = T, sep = "\t")
 
+sf_use_s2(FALSE)
+
 hex <- st_read("data/maps/hexgrid_materials/hex_grid_crop.shp", stringsAsFactors= F) %>%
-  mutate(cell = as.numeric(cell))
+  mutate(cell = as.numeric(cell)) %>%
+  st_make_valid()
 
 sites = distinct(sites, Name, .keep_all = TRUE)
 hexcells <- sites %>%
@@ -39,13 +42,32 @@ fullDataset2 = fullDataset %>%
   filter(!is.na(cell)) %>% #removes 6 sites out west
   st_as_sf()
 
-usa <- st_as_sf(maps::map("state", fill = TRUE, plot = FALSE))%>%
+usa <- st_as_sf(maps::map("state", fill = TRUE, plot = FALSE)) %>%
+  st_set_crs("+proj=longlat +datum=WGS84 +no_defs") %>%
   st_make_valid()
+
+hex2 = st_intersection(hex, usa)
+
+sf_use_s2(TRUE)
+
+#for some reason hexcells, which ultimately derives from Site.csv, has more sites than fullDataset, so these are the extras, which will not be used
+extras = hexcells["Name"]$Name %>%
+  setdiff(unique(fullDataset2["Name"])$Name) %>%
+  as.data.frame() %>%
+  left_join(hexcells["Name"], by = join_by(. == Name)) %>%
+  st_as_sf()
 
 plot(st_geometry(usa))
 plot(st_geometry(hexcells["Name"]), add = TRUE)
+
+plot(st_geometry(usa))
+plot(st_geometry(st_as_sf(extras)), add = TRUE)
+
+#these are the sites that will be used
 plot(st_geometry(usa))
 plot(st_geometry(unique(fullDataset2["Name"])), add = TRUE)
+plot(hex2, col = alpha(hex2$cell, 0.2), add = TRUE)
+
 
 ### Site effort summary
 
@@ -100,7 +122,7 @@ allweeks <- ggplot(yearpairs_all, aes(x = minWeeks)) +
   labs(col = "", y = "Data points", x = "Minimum weeks") +
   theme(legend.position = c(0.8, 0.9))
 
-plot_grid(allweeks, goodweeks, ncol = 2)
+ plot_grid(allweeks, goodweeks, ncol = 2)
 # ggsave("figs/caterpillars-count/pheno_data_sites_per_year.pdf", units = "in", height = 5, width = 10)
 
 ## If at least 6 good weeks
@@ -124,6 +146,7 @@ ggplot(focal_years_plot) + geom_path(aes(x = dates, y = year, group = year), siz
 # ggsave("figs/caterpillars-count/pheno_siteyears_overlap.pdf", units = "in", height = 10, width = 15)
 
 # For sites with at least 6 good weeks, find common time window across years for sites (w/ at least 6 weeks overlap)
+# Start and End - first and last week in siteyear; maxStart and maxEnd - narrowest window of overlap #FIND BETTER WAY THAT DOESNT WASTE SO MUCH DATA - ended up switching the 6 week filter to be before the maxStart/maxEnd filter: 23->33 sites
 
 surveyThreshold = 0.8            # proprortion of surveys conducted to be considered a good sampling day
 minJulianWeek = 135              # beginning of seasonal window for tabulating # of good weeks
@@ -141,20 +164,22 @@ site_overlap <- fullDataset2 %>%
                                          (nSurveysPerWeek > surveyThreshold*medianSurveysPerWeek | nSurveysPerWeek > 50), 1, 0)) %>%
   filter(good_week == 1) %>%
   group_by(Name, Year, Region, cell, Latitude.y, Longitude.y) %>%
+  filter(n_distinct(julianweek) >= 6) %>%
   mutate(Start = min(julianweek),
-         End = max(julianweek)) %>% 
+         End = max(julianweek)) %>%
+  group_by(Name, Region, cell, Latitude.y, Longitude.y) %>%
+  filter(n_distinct(Year) >= 2) %>%
   group_by(Name, Region, cell, Latitude.y, Longitude.y) %>%
   mutate(maxStart = max(Start),
          minEnd = min(End)) %>%
-  filter(julianweek >= maxStart & julianweek <= minEnd) %>%
-  group_by(Name, Year, Region, cell, Latitude.y, Longitude.y) %>%
-  filter(n_distinct(julianweek) >= 6) %>%
-  group_by(Name, Region, cell, Latitude.y, Longitude.y) %>%
-  filter(n_distinct(Year) >= 2)
+  filter(julianweek >= maxStart & julianweek <= minEnd)
 
+
+# this takes quite a while to run
 sites_6weeks_overlap <- site_overlap %>%
   ungroup() %>%
   distinct(Name, Year, Region, cell, Latitude.y, Longitude.y, Start, End)
+# hence: write.csv(sites_6weeks_overlap, "data/sites_6weeks_overlap.csv", row.names = F)
 
 hex_start_end <- sites_6weeks_overlap %>%
   group_by(Year, cell) %>%
@@ -181,7 +206,7 @@ pheno_dev <- site_overlap %>%
   mutate(meanDensity = totalCount/nSurveys,
          fracSurveys = 100*numSurveysGTzero/nSurveys,
          meanBiomass = totalBiomass/nSurveys) %>%
-  group_by(Name, Year) %>%
+  group_by(Name, Year, cell) %>%
   summarize(pctPeakDate = ifelse(sum(totalCount) == 0, NA, 
                                  julianweek[fracSurveys == max(fracSurveys, na.rm = TRUE)][1]),
             pctCentroidDate = sum(julianweek*fracSurveys)/sum(fracSurveys)) %>%
