@@ -120,7 +120,7 @@ allweeks <- ggplot(yearpairs_all, aes(x = minWeeks)) +
   geom_line(aes(y = n_regions, col = "Regions"), linewidth = 1) +
   geom_line(aes(y = n_cells, col = "Hex cells"), linewidth = 1) +
   labs(col = "", y = "Data points", x = "Minimum weeks") +
-  theme(legend.position = c(0.8, 0.9))
+  theme(legend.position.inside = c(0.8, 0.9))
 
  plot_grid(allweeks, goodweeks, ncol = 2)
 # ggsave("figs/caterpillars-count/pheno_data_sites_per_year.pdf", units = "in", height = 5, width = 10)
@@ -328,7 +328,7 @@ inat_insect_allyrs <- inat_summer_2019 %>%
 # Calculate caterpillars/insect observations per week for inaturalist
 # this one also takes forever
 
-inat2 = inat[3000:18000,]
+inat2 = inat[3000:9000,]
 
 inat_cats_pheno <- inat2 %>%
   select(id, observed_on, user_login, quality_grade, url, latitude, longitude, scientific_name, common_name, taxon_id, taxon_order_name, taxon_family_name, taxon_genus_name) %>%
@@ -353,8 +353,8 @@ inat_pheno <- inat_cats_pheno %>%
   summarize(peakDate = median(jd_wk[cat_effort == max(cat_effort, na.rm = T)], na.rm = T),
             centroidDate = sum(jd_wk*cat_effort, na.rm = T)/sum(cat_effort, na.rm = T)) %>%
   group_by(cell) %>%
-  mutate(meanPeakDate = mean(peakDate),
-         meanCentroidDate = mean(centroidDate),
+  mutate(meanPeakDate = mean(peakDate, na.rm = T),
+         meanCentroidDate = mean(centroidDate, na.rm = T),
          devPeakDate = meanPeakDate - peakDate,
          devCentroidDate = meanCentroidDate - centroidDate)
 
@@ -392,8 +392,8 @@ summary(lm(deviance ~ tempDev, data = filter(peak_dev, dataset == "iNaturalist")
 summary(lm(deviance ~ tempDev, data = filter(peak_dev, dataset == "Caterpillars Count!")))
 
 CC_dev_plot <- ggplot(peak_dev, aes(x = tempDev, y = deviance, col = dataset)) +
-  geom_hline(yintercept = 0, lty = 2, col = "darkgray", cex = 1) + 
-  geom_vline(xintercept = 0, lty = 2, col = "darkgray", cex = 1) +
+  geom_hline(yintercept = 0, lty = 2, col = "darkgray", linewidth = 1) + 
+  geom_vline(xintercept = 0, lty = 2, col = "darkgray", linewidth = 1) +
   geom_point(cex = 3) + 
   geom_smooth(method = "lm", se = F, cex = 1) +
   scale_color_manual(values = c("blue3", "palegreen3")) +

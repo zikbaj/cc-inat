@@ -41,8 +41,8 @@ inat_insecta <- occ_download(
 #unzip("data/downloads/gbif/0004316-260921141020460.zip", exdir = "data/downloads/gbif")
 
 inat_insecta_download <- fread(
-  "data/downloads/gbif/0004316-260921141020460.csv", sep = "\t", quote = "",
-  select = c("occurrenceID", "order", "family", "genus", "scientificName", "stateProvince", "individualCount", "decimalLatitude", "decimalLongitude", "coordinatePrecision", "elevation", "eventDate", "day", "month", "year", "catalogNumber", "recordedBy")
+  "data/downloads/gbif/0004316-260921141020460.zip", sep = "\t", quote = "",
+  select = c("catalogNumber", "order", "family", "genus", "scientificName", "stateProvince", "individualCount", "decimalLatitude", "decimalLongitude", "eventDate", "day", "month", "year", "recordedBy")
 )
 
 
