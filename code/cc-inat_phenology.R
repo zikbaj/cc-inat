@@ -27,7 +27,7 @@ inat_species = read.table("data/taxonomy/inat_caterpillar_species_traits.txt", h
 
 sf_use_s2(FALSE)
 
-hex <- st_read("data/maps/hexgrid_materials/hex_grid_crop.shp", stringsAsFactors= F) %>%
+hex <- st_read("data/maps/hexgrid_materials/hex_grid_crop.shp", stringsAsFactors = F) %>%
   mutate(cell = as.numeric(cell)) %>%
   st_make_valid()
 
@@ -140,7 +140,7 @@ focal_years_plot <-  focal_sites %>%
 jds = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335)
 dates = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-ggplot(focal_years_plot) + geom_path(aes(x = dates, y = year, group = year), size = 2) + 
+ggplot(focal_years_plot) + geom_path(aes(x = dates, y = year, group = year), linewidth = 2) + 
   scale_x_continuous(breaks = jds, labels = dates) + facet_wrap(~Name) +
   labs(x = " ", y = " ")
 # ggsave("figs/caterpillars-count/pheno_siteyears_overlap.pdf", units = "in", height = 10, width = 15)
@@ -176,10 +176,11 @@ site_overlap <- fullDataset2 %>%
 
 
 # this takes quite a while to run
-sites_6weeks_overlap <- site_overlap %>%
-  ungroup() %>%
-  distinct(Name, Year, Region, cell, Latitude.y, Longitude.y, Start, End)
+#sites_6weeks_overlap <- site_overlap %>%
+#  ungroup() %>%
+#  distinct(Name, Year, Region, cell, Latitude.y, Longitude.y, Start, End)
 # hence: write.csv(sites_6weeks_overlap, "data/sites_6weeks_overlap.csv", row.names = F)
+sites_6weeks_overlap <- read.csv("data/sites_6weeks_overlap.csv")
 
 hex_start_end <- sites_6weeks_overlap %>%
   group_by(Year, cell) %>%
@@ -209,17 +210,17 @@ pheno_dev <- site_overlap %>%
   group_by(Name, Year, cell) %>%
   summarize(pctPeakDate = ifelse(sum(totalCount) == 0, NA, 
                                  julianweek[fracSurveys == max(fracSurveys, na.rm = TRUE)][1]),
-            pctCentroidDate = sum(julianweek*fracSurveys)/sum(fracSurveys)) %>%
+            pctCentroidDate = sum(julianweek*fracSurveys)/sum(fracSurveys)) %>% 
   group_by(Name, cell) %>%
-  mutate(meanPeakDate = mean(pctPeakDate),
-         meanCentroidDate = mean(pctCentroidDate),
+  mutate(meanPeakDate = mean(pctPeakDate, na.rm = T),
+         meanCentroidDate = mean(pctCentroidDate, na.rm = T),
          devPeakDate = meanPeakDate - pctPeakDate,
-         devCentroidDate = meanCentroidDate - pctCentroidDate) 
+         devCentroidDate = meanCentroidDate - pctCentroidDate)
 
 cell_pheno <- pheno_dev %>%
   group_by(cell, Year) %>%
-  summarize(avgDevPeak = mean(devPeakDate),
-            avgDevCentroid = mean(devCentroidDate))
+  summarize(avgDevPeak = mean(devPeakDate, na.rm = T),
+            avgDevCentroid = mean(devCentroidDate, na.rm =T))
 
 hex_subset <- hex %>%
   filter(cell %in% cell_pheno$cell)
@@ -325,8 +326,12 @@ inat_insect_allyrs <- inat_summer_2019 %>%
   filter(n_wks >= 6)
 
 # Calculate caterpillars/insect observations per week for inaturalist
+# this one also takes forever
 
-inat_cats_pheno <- inat %>%
+inat2 = inat[3000:18000,]
+
+inat_cats_pheno <- inat2 %>%
+  select(id, observed_on, user_login, quality_grade, url, latitude, longitude, scientific_name, common_name, taxon_id, taxon_order_name, taxon_family_name, taxon_genus_name) %>%
   filter(user_login != "caterpillarscount") %>%
   mutate(year = as.numeric(substr(observed_on, 1, 4)),
          jday = yday(observed_on), 
@@ -342,7 +347,7 @@ inat_cats_pheno <- inat %>%
 ## Peak and centroid dates and anomalies for caterpillars (effort corrected)
 
 inat_pheno <- inat_cats_pheno %>%
-  right_join(inat_insect_allyrs, by = c("year", "jd_wk")) %>%
+  right_join(inat_insect_allyrs, by = c("cell", "year", "jd_wk")) %>%
   mutate(cat_effort = nCats/nObs) %>%
   group_by(cell, year) %>%
   summarize(peakDate = median(jd_wk[cat_effort == max(cat_effort, na.rm = T)], na.rm = T),
@@ -372,7 +377,7 @@ temp_dev <- hex_temps %>%
 theme_set(theme_classic(base_size = 17))
 
 # read in 2019 peak, centroid, temp, lat data
-pheno_plot <- read.csv("InTheMiddle/data/pheno_2019_cc_inat_plot.csv", stringsAsFactors = F)
+pheno_plot <- read.csv("data/InTheMiddle/pheno_2019_cc_inat_plot.csv", stringsAsFactors = F)
 
 peak_dev <- temp_dev %>%
   dplyr::select(cell, year, mean_temp, tempDev, devPeakDate, avgDevPeak) %>%
